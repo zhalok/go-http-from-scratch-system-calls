@@ -7,6 +7,8 @@ import (
 )
 
 func readFromConnectionSocket(connectionFd int) {
+	defer syscall.Close(connectionFd)
+
 	buf := make([]byte, 1024)
 	message := ""
 	payaload := ""
