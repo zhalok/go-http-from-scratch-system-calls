@@ -5,6 +5,10 @@ import (
 	"syscall"
 )
 
+func extractAddressAndPort(sa syscall.SockaddrInet4) string {
+	return fmt.Sprintf("%d.%d.%d.%d:%d", int(sa.Addr[0]), int(sa.Addr[1]), int(sa.Addr[2]), int(sa.Addr[3]), sa.Port)
+}
+
 func main() {
 
 	listeningSocketFd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
@@ -35,5 +39,15 @@ func main() {
 	}
 
 	fmt.Println("Listening on 127.0.0.1:8080")
+
+	for {
+		connectionFd, connectionAddress, err := syscall.Accept(listeningSocketFd)
+		if err != nil {
+			fmt.Printf("there was a problem accepting the connection from the listening socket %+v\n", err)
+			continue
+		}
+		addressAndPort := connectionAddress.(*syscall.SockaddrInet4)
+		fmt.Printf("recieved connection from %s, connection fd: %d\n", extractAddressAndPort(*addressAndPort), connectionFd)
+	}
 
 }
