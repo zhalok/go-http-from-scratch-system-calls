@@ -137,7 +137,7 @@ func main() {
 		acknowledgeClient(connectionFd)
 		addressAndPort := connectionAddress.(*syscall.SockaddrInet4)
 		fmt.Printf("recieved connection from %s, connection fd: %d\n", extractAddressAndPort(*addressAndPort), connectionFd)
-		readFromConnectionSocket(connectionFd)
+		go readFromConnectionSocket(connectionFd)
 	}
 
 }
