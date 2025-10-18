@@ -13,7 +13,7 @@ func main() {
 		panic(err)
 	}
 	defer syscall.Close(listeningSocketFd)
-	
+
 	addr := [4]byte{127, 0, 0, 1}
 	sourceAddressAndPort := syscall.SockaddrInet4{
 		Addr: addr,
@@ -26,5 +26,14 @@ func main() {
 		fmt.Printf("there was a problem binding the socket with source ip and port %+v\n", err)
 		panic(err)
 	}
+
+	err = syscall.Listen(listeningSocketFd, 10)
+
+	if err != nil {
+		fmt.Printf("there was problem listening on the socket %+v\n", err)
+		panic(err)
+	}
+
+	fmt.Println("Listening on 127.0.0.1:8080")
 
 }
