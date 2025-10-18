@@ -2,8 +2,38 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"syscall"
 )
+
+func readFromConnectionSocket(connectionFd int) {
+	buf := make([]byte, 1024)
+	message := ""
+	payaload := ""
+	for {
+		readBytes, err := syscall.Read(connectionFd, buf)
+		if err != nil {
+			fmt.Printf("Error reading from connection %d\n", connectionFd)
+			syscall.Close(connectionFd)
+			return
+		}
+		if readBytes == 0{
+			fmt.Printf("Client has closed connection: %d\n",connectionFd)
+			fmt.Printf("Closing connection %d\n",connectionFd)
+			syscall.Close(connectionFd)
+			return
+		}
+
+		message += string(buf[:readBytes])
+		if strings.Contains(message, "\n") {
+			splited := strings.Split(message, "\n")
+			payaload = splited[0]
+			message = splited[1]
+		}
+		fmt.Printf("Recieved Message from connection %d: %s\n",connectionFd, payaload)
+
+	}
+}
 
 func extractAddressAndPort(sa syscall.SockaddrInet4) string {
 	return fmt.Sprintf("%d.%d.%d.%d:%d", int(sa.Addr[0]), int(sa.Addr[1]), int(sa.Addr[2]), int(sa.Addr[3]), sa.Port)
@@ -48,6 +78,7 @@ func main() {
 		}
 		addressAndPort := connectionAddress.(*syscall.SockaddrInet4)
 		fmt.Printf("recieved connection from %s, connection fd: %d\n", extractAddressAndPort(*addressAndPort), connectionFd)
+		readFromConnectionSocket(connectionFd)
 	}
 
 }
