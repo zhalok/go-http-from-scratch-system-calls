@@ -177,7 +177,7 @@ func readFromConnectionSocket(connectionFd int) {
 			request.body = strings.TrimSpace(message)
 		}
 
-		fmt.Printf("request body %s\n",request.body)
+		fmt.Printf("Request: %+v\n",request)
 
 	}
 }
