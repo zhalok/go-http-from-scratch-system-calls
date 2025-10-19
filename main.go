@@ -22,6 +22,81 @@ type Request struct{
 	metadata MetaData
 	headers map[string]string
 	body string
+	params map[string]string
+	connectionFd int
+}
+
+type Item struct{
+	id string
+	name string
+}
+
+var handlerMap map[string]func(Request)
+
+func getItemsHandler(parsedRequest Request){
+	connectionFd := parsedRequest.connectionFd
+	writeBackResponse(connectionFd,200,"Yo")
+}
+
+func comparePaths(requestPath string,handlerPath string) bool{
+	requestPathArr := strings.Split(strings.TrimSpace(requestPath),"/")
+	handlerPathArr := strings.Split(strings.TrimSpace(handlerPath),"/")
+
+	if len(requestPathArr) != len(handlerPathArr){
+		return false
+	} 
+
+	for idx , _ := range handlerPathArr{
+		handlerPathTerm := handlerPathArr[idx]
+		requestpathTerm := requestPathArr[idx]
+		if !strings.HasPrefix(handlerPathTerm,":") && handlerPathTerm != requestpathTerm{
+			return false
+		}
+	}
+
+	return true
+}
+
+func extractParams(requestPath string, handlerPath string) map[string]string{
+	handlerPathTerms := strings.Split(handlerPath,"/")
+	requestPathTerms := strings.Split(requestPath,"/")
+
+	paramsMap := make(map[string]string,0)
+
+	for idx, _ := range(handlerPathTerms){
+		handlerPathTerm := handlerPathTerms[idx]
+		if strings.HasPrefix(handlerPathTerm,":"){
+			param := handlerPathTerm[1:]
+			requestPathTerm := requestPathTerms[idx]
+			paramsMap[param] = requestPathTerm
+		}
+	}
+	return paramsMap
+}
+
+func findAndTriggerHandler(request Request) error{
+	requestPath := request.metadata.path
+	var paramsMap map[string]string
+	for handlerPath := range handlerMap{
+		if(comparePaths(requestPath,handlerPath)){
+			paramsMap = extractParams(requestPath,handlerPath)
+			request.params = paramsMap
+			fun,ok := handlerMap[requestPath]
+			if !ok{
+				return fmt.Errorf("invalid path")
+			}
+			fun(request)
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid path")
+}
+
+func writeBackResponse(connectionFd int, statusCode int, message string){
+	// HTTP/1.1 200 OK
+	response := fmt.Sprintf("HTTP/1.1 %d %s\r\n",statusCode, message)
+	fmt.Printf("sending response back %s\n",message)
+	syscall.Write(connectionFd,[]byte(response))
 }
 
 func closeConnectionWithLog(connectionFd int) {
@@ -135,7 +210,7 @@ func parseHttpRequest(rawRequest string) Request {
 
 } 
 
-func readFromConnectionSocket(connectionFd int) {
+func readFromConnectionSocket(connectionFd int) error {
 	defer removeConnection(connectionFd)
 
 	buf := make([]byte, 1024)
@@ -144,13 +219,12 @@ func readFromConnectionSocket(connectionFd int) {
 	for {
 		readBytes, err := syscall.Read(connectionFd, buf)
 		if err != nil {
-			fmt.Printf("Error reading from connection %d\n", connectionFd)
-			return
+			return fmt.Errorf("Error reading from connection %d: %w\n", connectionFd, err)
 		}
 		if readBytes == 0 {
 			fmt.Printf("Client has closed connection: %d\n", connectionFd)
 			fmt.Printf("Closing connection %d\n", connectionFd)
-			return
+			return nil
 		}
 		message += string(buf[:readBytes])
 		lines := strings.Split(message, "\n")
@@ -165,6 +239,7 @@ func readFromConnectionSocket(connectionFd int) {
 		
 		request := parseHttpRequest(payaload)
 		headers := request.headers
+		request.connectionFd = connectionFd
 	
 		contentLength, err := strconv.Atoi(headers["content-length"])
 		if err != nil{
@@ -179,6 +254,15 @@ func readFromConnectionSocket(connectionFd int) {
 
 		fmt.Printf("Request: %+v\n",request)
 
+		err = findAndTriggerHandler(request)
+
+		if err != nil{
+			strings.Contains(err.Error(),"invalid")
+			writeBackResponse(connectionFd,400,"invalid path")
+			return nil
+		}
+		
+		return nil
 	}
 }
 
@@ -219,6 +303,9 @@ func main() {
 	activeConnections = make([]int, 0)
 
 	go handleInterrupts()
+
+	handlerMap = make(map[string]func(Request))
+	handlerMap["/items"] = getItemsHandler
 
 	for {
 		connectionFd, connectionAddress, err := syscall.Accept(listeningSocketFd)
