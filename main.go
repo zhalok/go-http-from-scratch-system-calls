@@ -31,24 +31,55 @@ type Item struct{
 	name string
 }
 
-var handlerMap map[string]func(Request)
+var handlerMap map[string]map[string]func(Request)
 
 func getItemsHandler(parsedRequest Request){
 	connectionFd := parsedRequest.connectionFd
 	writeBackResponse(connectionFd,200,"Yo")
 }
 
-func comparePaths(requestPath string,handlerPath string) bool{
-	requestPathArr := strings.Split(strings.TrimSpace(requestPath),"/")
-	handlerPathArr := strings.Split(strings.TrimSpace(handlerPath),"/")
+func splitClean(s string, sep string) []string {
+	terms := strings.Split(strings.TrimSpace(s),sep)
+	cleanTerms := make([]string, 0)
 
-	if len(requestPathArr) != len(handlerPathArr){
+	for _, term := range terms{
+		trimmedTerm := strings.TrimSpace(term)
+		if len(trimmedTerm) != 0{
+			cleanTerms = append(cleanTerms,trimmedTerm)
+		}
+	}
+
+	return cleanTerms
+}
+
+func getItemHandler(parsedRequest Request){
+	connectionFd := parsedRequest.connectionFd
+	id,ok := parsedRequest.params["id"]
+	if !ok{
+		response := "id not found\n"
+		writeBackResponse(connectionFd,400,response)
+		return
+	}
+	response := fmt.Sprintf("id: %s\n",id)
+	writeBackResponse(connectionFd, 200, response)
+}
+
+func createItemHandler(parsedRequest Request){
+	connectionFd := parsedRequest.connectionFd
+	writeBackResponse(connectionFd, 200, "hello")
+}
+
+func comparePaths(requestPath string,handlerPath string) bool{
+	requestPathArr := splitClean(requestPath,"/")
+	handlerPathArr := splitClean(handlerPath,"/")
+	
+ 	if len(requestPathArr) != len(handlerPathArr){
 		return false
 	} 
 
 	for idx , _ := range handlerPathArr{
 		handlerPathTerm := handlerPathArr[idx]
-		requestpathTerm := requestPathArr[idx]
+		requestpathTerm := requestPathArr[idx]		
 		if !strings.HasPrefix(handlerPathTerm,":") && handlerPathTerm != requestpathTerm{
 			return false
 		}
@@ -76,14 +107,17 @@ func extractParams(requestPath string, handlerPath string) map[string]string{
 
 func findAndTriggerHandler(request Request) error{
 	requestPath := request.metadata.path
+	requestMethod := request.metadata.method
 	var paramsMap map[string]string
-	for handlerPath := range handlerMap{
+	handlerPaths := handlerMap[requestMethod]
+
+	for handlerPath := range handlerPaths{
 		if(comparePaths(requestPath,handlerPath)){
 			paramsMap = extractParams(requestPath,handlerPath)
 			request.params = paramsMap
-			fun,ok := handlerMap[requestPath]
+			fun,ok := handlerMap[requestMethod][handlerPath]
 			if !ok{
-				return fmt.Errorf("invalid path")
+				return fmt.Errorf("invalid path, handler not registered")
 			}
 			fun(request)
 			return nil
@@ -93,7 +127,6 @@ func findAndTriggerHandler(request Request) error{
 }
 
 func writeBackResponse(connectionFd int, statusCode int, message string){
-	// HTTP/1.1 200 OK
 	response := fmt.Sprintf("HTTP/1.1 %d %s\r\n",statusCode, message)
 	fmt.Printf("sending response back %s\n",message)
 	syscall.Write(connectionFd,[]byte(response))
@@ -304,8 +337,14 @@ func main() {
 
 	go handleInterrupts()
 
-	handlerMap = make(map[string]func(Request))
-	handlerMap["/items"] = getItemsHandler
+	handlerMap = make(map[string]map[string]func(Request))
+	handlerMap["GET"] = make(map[string]func(Request))
+	handlerMap["POST"] = make(map[string]func(Request))
+
+	handlerMap["GET"]["/items"] = getItemsHandler
+	handlerMap["GET"]["/items/:id"] = getItemHandler
+	handlerMap["POST"]["/items"] = createItemHandler
+
 
 	for {
 		connectionFd, connectionAddress, err := syscall.Accept(listeningSocketFd)
