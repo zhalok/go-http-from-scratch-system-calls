@@ -304,13 +304,21 @@ func extractAddressAndPort(sa syscall.SockaddrInet4) string {
 }
 
 func main() {
+    activeConnections = make([]int, 0)
 
-	listeningSocketFd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
+	listeningSocketFd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, 0)
 	if err != nil {
 		fmt.Printf("there was an error while creating the listening socket %+v\n", err)
 		panic(err)
 	}
 	defer syscall.Close(listeningSocketFd)
+
+	syscall.SetsockoptInt(listeningSocketFd,syscall.SOL_SOCKET,syscall.SO_REUSEADDR,1)
+
+	fmt.Printf("listening socket file descriptor %d\n",listeningSocketFd)
+
+	activeConnections = append(activeConnections, listeningSocketFd)
+	fmt.Printf("active connections %v\n",activeConnections)
 
 	addr := [4]byte{127, 0, 0, 1}
 	sourceAddressAndPort := syscall.SockaddrInet4{
@@ -333,7 +341,6 @@ func main() {
 	}
 
 	fmt.Println("Listening on 127.0.0.1:8080")
-	activeConnections = make([]int, 0)
 
 	go handleInterrupts()
 
@@ -350,7 +357,7 @@ func main() {
 		connectionFd, connectionAddress, err := syscall.Accept(listeningSocketFd)
 		if err != nil {
 			fmt.Printf("there was a problem accepting the connection from the listening socket %+v\n", err)
-			continue
+			break
 		}
 		activeConnections = append(activeConnections, connectionFd)
 		addressAndPort := connectionAddress.(*syscall.SockaddrInet4)
