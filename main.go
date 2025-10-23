@@ -242,60 +242,87 @@ func parseHttpRequest(rawRequest string) Request {
 
 }
 
+func readHeaders(connectionFd int) (string, string, error){
+	message := ""
+	buf := make([]byte, 1)
+	for !strings.Contains(message, "\r\n\r\n") {
+		readBytes, err := syscall.Read(connectionFd, buf)
+		if readBytes == 0 {
+			return "", "", fmt.Errorf("no bytes to read")
+
+		}
+		if err != nil {
+			return "", "", fmt.Errorf("there was a problem while reading from the connection %w", err)
+		}
+
+		message += string(buf[:readBytes])
+	}
+
+	lines := splitClean(message,"\r\n\r\n")
+	headerString := lines[0]
+	restRequest := ""
+
+	if len(lines) > 1{
+		restRequest = lines[1]
+	}
+
+	return headerString, restRequest, nil
+}
+
+func readBody(connectionFd int, alreadyReadString string, contentLength int) (string,error){
+	message := alreadyReadString
+	buf := make([]byte,1)
+	for len(message) < contentLength{
+		readBytes, err := syscall.Read(connectionFd,buf)
+		if readBytes == 0{
+			return "", fmt.Errorf("there was no byte to be read from the connection")
+		}
+		if err != nil {
+			return "", fmt.Errorf("there was a problem while reading from the connection %w",err)
+		}
+		message += string(buf[:readBytes])
+	}
+	return message, nil
+}
+
 func readFromConnectionSocket(connectionFd int) error {
 	defer removeConnection(connectionFd)
 
-	buf := make([]byte, 1024)
-	message := ""
-	payaload := ""
-	for {
-		readBytes, err := syscall.Read(connectionFd, buf)
-		if err != nil {
-			return fmt.Errorf("Error reading from connection %d: %w\n", connectionFd, err)
-		}
-		if readBytes == 0 {
-			fmt.Printf("Client has closed connection: %d\n", connectionFd)
-			fmt.Printf("Closing connection %d\n", connectionFd)
-			return nil
-		}
-		message += string(buf[:readBytes])
-		lines := strings.Split(message, "\n")
-
-		for _, line := range lines[0 : len(lines)-1] {
-			if line != "" {
-				payaload += fmt.Sprintf("%s\n", line)
-			}
-		}
-
-		message = lines[len(lines)-1]
-
-		request := parseHttpRequest(payaload)
-		headers := request.headers
-		request.connectionFd = connectionFd
-
-		contentLength, err := strconv.Atoi(headers["content-length"])
-		if err != nil {
-			fmt.Printf("error while getting content length string %v\n", err)
-			panic(err)
-		}
-
-		fmt.Printf("Content length %d\n", contentLength)
-		if len(message) >= contentLength {
-			request.body = strings.TrimSpace(message)
-		}
-
-		fmt.Printf("Request: %+v\n", request)
-
-		err = findAndTriggerHandler(request)
-
-		if err != nil {
-			strings.Contains(err.Error(), "invalid")
-			writeBackResponse(connectionFd, 400, "invalid path")
-			return nil
-		}
-
-		return nil
+	headerString, restRequest, err := readHeaders(connectionFd)
+	if err != nil{
+		return fmt.Errorf("there was a problem while reading headers %w", err)
 	}
+
+	lines := strings.Split(headerString,"\n")
+	parsedMetaData := parseMetaData(lines[0])
+	parsedHeaders := parseHeaders(lines[1:])
+
+	contentLength, ok := parsedHeaders["content-length"]
+	if !ok {
+		contentLength = "0"
+	}
+
+	contentLengthInt, err := strconv.Atoi(contentLength)
+
+	if err != nil{
+		return fmt.Errorf("there was a problem converting content length to integer %w",err)
+	}
+
+	body, err := readBody(connectionFd, restRequest, contentLengthInt)
+
+	if err != nil{
+		return fmt.Errorf("there was a problem while reading body from the connection %w",err)
+	}
+
+	request := Request{
+		metadata: parsedMetaData,
+		headers: parsedHeaders,
+		body: body,
+	}
+
+	fmt.Printf("request %+v\n",request)
+
+	return nil
 }
 
 func extractAddressAndPort(sa syscall.SockaddrInet4) string {
