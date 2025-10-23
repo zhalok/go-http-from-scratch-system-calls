@@ -229,19 +229,6 @@ func parseHeaders(hearderStrings []string) map[string]string {
 	return headersMap
 }
 
-func parseHttpRequest(rawRequest string) Request {
-	lines := strings.Split(rawRequest, "\n")
-	metaData := parseMetaData(lines[0])
-
-	headersMap := parseHeaders(lines[1:])
-
-	return Request{
-		metadata: metaData,
-		headers:  headersMap,
-	}
-
-}
-
 func readHeaders(connectionFd int) (string, string, error){
 	message := ""
 	buf := make([]byte, 1)
